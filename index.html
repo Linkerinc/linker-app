@@ -97,6 +97,18 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
 .swatch.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff inset;}
 @media(max-width:680px){ .cal-cell{min-height:72px;} .chip{font-size:10.5px;} }
+/* 대시보드 */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+.seg button{background:#fff;border:none;padding:7px 13px;font-size:13px;font-weight:600;color:var(--soft);border-right:1px solid var(--line);}
+.seg button:last-child{border-right:none;}
+.seg button.on{background:var(--ink);color:#fff;}
+.barrow{display:flex;align-items:center;gap:12px;margin-bottom:11px;}
+.barrow .lab{width:120px;font-size:13px;font-weight:600;flex-shrink:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bartrack{flex:1;background:#f0eee7;border-radius:6px;height:22px;position:relative;overflow:hidden;}
+.barfill{height:100%;border-radius:6px;min-width:2px;transition:width .4s;}
+.barrow .val{width:96px;flex-shrink:0;font-size:12.5px;color:var(--soft);}
+.minibar{background:#f0eee7;border-radius:5px;height:9px;overflow:hidden;}
+.minibar>div{height:100%;background:var(--accent);border-radius:5px;}
 </style>
 </head>
 <body>
@@ -135,6 +147,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
       <button class="tab active" data-tab="leave">휴가</button>
       <button class="tab" data-tab="mypage">마이페이지</button>
       <button class="tab" data-tab="calendar">캘린더</button>
+      <button class="tab" data-tab="dash" disabled>대시보드</button>
       <button class="tab" data-tab="staff" disabled>직원관리</button>
       <button class="tab" data-tab="soon3" disabled>견적·명세서 (다음 단계)</button>
     </div>
@@ -217,6 +230,53 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
         ※ 계정 발급은 보안 함수(Edge Function <b>create-employee</b>)를 통해 처리됩니다. 함수 배포 전에는 "직원 추가" 시 오류가 납니다.
       </p>
     </section>
+
+    <!-- 대시보드 (최고관리자) -->
+    <section id="tab-dash" class="hidden">
+      <div class="page-head">
+        <div><h2>업무 대시보드</h2><p>직원들이 어떤 업무에 시간을 쓰는지 한눈에 봅니다. (캘린더 일정 기준)</p></div>
+        <div class="seg" id="dash-period">
+          <button data-p="week">이번주</button>
+          <button data-p="month" class="on">이번달</button>
+          <button data-p="30">30일</button>
+          <button data-p="all">전체</button>
+        </div>
+      </div>
+      <div class="loading hidden" id="dash-loading">집계하는 중…</div>
+
+      <div class="stat-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat"><div class="k">전체 일정</div><div class="v" id="d-count">–<small>건</small></div></div>
+        <div class="stat"><div class="k">추정 업무시간</div><div class="v" id="d-hours">–<small>h</small></div></div>
+        <div class="stat"><div class="k">참여 직원</div><div class="v" id="d-emp">–<small>명</small></div></div>
+        <div class="stat"><div class="k">휴가 결재 대기</div><div class="v" id="d-pend">–<small>건</small></div></div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size:16px;margin-bottom:4px">업무 유형별 시간 할애</h3>
+        <p style="font-size:12.5px;color:var(--soft);margin-bottom:14px">어떤 종류의 업무에 시간이 가장 많이 들어가는지</p>
+        <div id="d-bytype"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size:16px;margin-bottom:14px">직원별 업무량</h3>
+        <div class="table-card" style="border:none">
+          <table style="min-width:640px">
+            <thead><tr><th>직원</th><th>일정</th><th>추정시간</th><th>주요 업무</th><th style="width:34%">시간 비중</th></tr></thead>
+            <tbody id="d-byemp"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size:16px;margin-bottom:12px">직원 상세 보기</h3>
+        <select id="d-emp-sel" style="padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-family:inherit;font-size:14px;margin-bottom:14px;min-width:200px"></select>
+        <div id="d-emp-detail"></div>
+      </div>
+
+      <p style="font-size:12px;color:var(--soft);line-height:1.6">
+        ※ 추정 시간: 일정에 시작·종료 시간이 있으면 그 시간을, 없으면 1일=8시간(주말 제외)으로 계산한 추정치입니다. 절대 수치보다 <b>업무 간 비교</b> 용도로 보세요.
+      </p>
+    </section>
   </main>
 </div>
 
@@ -294,12 +354,14 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
    - SUPABASE_KEY : publishable 키 (sb_publishable_... / 공개용, RLS가 권한을 막음)
    ============================================================ */
 const SUPABASE_URL = "https://zfjcrinqbfodmstitzob.supabase.co";
-const SUPABASE_KEY = "sb_publishable_0_zUg5KQaZ_Gs_A16cYcTA_S2EDaeuy";   // ← 여기에 publishable 키 붙여넣기
+const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";   // ← 여기에 publishable 키 붙여넣기
 /* ============================================================ */
 
 const $ = id => document.getElementById(id);
 let db = null, ME = null, MEMBERS = {}, LEAVES = [];
 let EVENTS = [], calY = new Date().getFullYear(), calM = new Date().getMonth();
+let dashPeriod = 'month', DASH_FILTERED = [];
+const DCOLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#db2777','#64748b'];
 const COLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#64748b'];
 let selectedColor = COLORS[0];
 const esc = s => String(s||'').replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
@@ -366,6 +428,13 @@ function bindEvents(){
   $('st-cancel').addEventListener('click', ()=>$('staff-bg').classList.add('hidden'));
   $('staff-bg').addEventListener('click', e=>{ if(e.target===$('staff-bg')) $('staff-bg').classList.add('hidden'); });
   $('st-submit').addEventListener('click', addStaff);
+  // 대시보드
+  $('dash-period').addEventListener('click', e=>{
+    const b=e.target.closest('[data-p]'); if(!b) return;
+    document.querySelectorAll('#dash-period button').forEach(x=>x.classList.toggle('on', x===b));
+    dashPeriod=b.dataset.p; loadDashboard();
+  });
+  $('d-emp-sel').addEventListener('change', ()=>renderEmpDetail($('d-emp-sel').value));
 }
 
 /* ============ 로그인 ============ */
@@ -397,8 +466,11 @@ async function afterLogin(user){
   $('who-ro').style.border = '1px solid '+ROLE_COLOR[ME.role];
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   const staffTab = document.querySelector('.tab[data-tab="staff"]');
-  if(ME.role==='super-admin'){ staffTab.disabled=false; staffTab.onclick=()=>switchTab('staff'); }
-  else { staffTab.classList.add('hidden'); }
+  const dashTab = document.querySelector('.tab[data-tab="dash"]');
+  if(ME.role==='super-admin'){
+    staffTab.disabled=false; staffTab.onclick=()=>switchTab('staff');
+    dashTab.disabled=false; dashTab.onclick=()=>switchTab('dash');
+  } else { staffTab.classList.add('hidden'); dashTab.classList.add('hidden'); }
   switchTab('leave');
   await renderLeave();
 }
@@ -411,6 +483,8 @@ function switchTab(name){
   if(name==='calendar') renderCalendarFull();
   $('tab-staff').classList.toggle('hidden', name!=='staff');
   if(name==='staff') loadStaff();
+  $('tab-dash').classList.toggle('hidden', name!=='dash');
+  if(name==='dash') loadDashboard();
 }
 
 /* ============ 휴가 ============ */
@@ -698,6 +772,103 @@ async function addStaff(){
   $('staff-bg').classList.add('hidden');
   await loadStaff();
   alert('계정이 생성되었습니다.\n이메일: '+email+'\n초기 비밀번호를 직원에게 전달하세요.');
+}
+
+/* ============ 대시보드 (최고관리자) ============ */
+function toH(t){ const [h,m]=String(t).split(':').map(Number); return (h||0)+((m||0)/60); }
+function workdays(sd, ed){
+  let d=new Date(sd+'T00:00:00'), end=new Date((ed||sd)+'T00:00:00'), c=0; if(end<d) end=d;
+  while(d<=end){ const w=d.getDay(); if(w!==0&&w!==6) c++; d.setDate(d.getDate()+1); }
+  return Math.max(c,1);
+}
+function daysInc(sd, ed){
+  const d=new Date(sd+'T00:00:00'), end=new Date((ed||sd)+'T00:00:00');
+  return Math.max(Math.round((end-d)/86400000)+1, 1);
+}
+function hoursOf(e){
+  const wd=workdays(e.start_date, e.end_date);
+  if(e.start_time && e.end_time){
+    let per=toH(e.end_time)-toH(e.start_time); if(per<=0) per=8;
+    return daysInc(e.start_date,e.end_date)>1 ? per*wd : per;
+  }
+  return wd*8;
+}
+function fmtH(h){ return Math.round(h)+'h'; }
+function topType(types){ let best='–', mx=-1; for(const k in types){ if(types[k]>mx){ mx=types[k]; best=k; } } return best; }
+function periodRange(p){
+  const today=new Date(), ts=dstr(today);
+  if(p==='week'){ const s=new Date(today); s.setDate(s.getDate()-s.getDay()); const e=new Date(s); e.setDate(s.getDate()+6); return {s:dstr(s),e:dstr(e)}; }
+  if(p==='month'){ return {s:dstr(new Date(today.getFullYear(),today.getMonth(),1)), e:dstr(new Date(today.getFullYear(),today.getMonth()+1,0))}; }
+  if(p==='30'){ const s=new Date(today); s.setDate(s.getDate()-29); return {s:dstr(s),e:ts}; }
+  return {s:'0000-01-01', e:'9999-12-31'};
+}
+function renderBars(el, items){
+  if(!items.length){ el.innerHTML='<p style="color:var(--soft);font-size:13.5px">데이터가 없습니다.</p>'; return; }
+  const max=Math.max(...items.map(i=>i.hours),1);
+  el.innerHTML=items.map((i,idx)=>`
+    <div class="barrow">
+      <div class="lab" title="${esc(i.label)}">${esc(i.label)}</div>
+      <div class="bartrack"><div class="barfill" style="width:${Math.max(Math.round(i.hours/max*100),2)}%;background:${DCOLORS[idx%DCOLORS.length]}"></div></div>
+      <div class="val">${fmtH(i.hours)} · ${i.count}건</div>
+    </div>`).join('');
+}
+async function loadDashboard(){
+  $('dash-loading').classList.remove('hidden');
+  const { data:evs, error } = await db.from('events').select('*');
+  if(error){ alert('대시보드 조회 오류: '+error.message); $('dash-loading').classList.add('hidden'); return; }
+  let pend=0;
+  try{ const { data:lv } = await db.from('leaves').select('status'); pend=(lv||[]).filter(l=>l.status==='1차대기'||l.status==='2차대기').length; }catch(_){}
+  if(!Object.keys(MEMBERS).length){ const { data:mem } = await db.from('profiles').select('id,name,role'); MEMBERS={}; (mem||[]).forEach(m=>MEMBERS[m.id]=m); }
+  const r=periodRange(dashPeriod);
+  DASH_FILTERED=(evs||[]).filter(e=> e.start_date<=r.e && (e.end_date||e.start_date)>=r.s);
+
+  const byType={}, byEmp={}; let totalH=0;
+  DASH_FILTERED.forEach(e=>{
+    const h=hoursOf(e); totalH+=h;
+    const tk=e.work_type||'미분류';
+    byType[tk]=byType[tk]||{hours:0,count:0}; byType[tk].hours+=h; byType[tk].count++;
+    byEmp[e.owner]=byEmp[e.owner]||{hours:0,count:0,types:{}}; byEmp[e.owner].hours+=h; byEmp[e.owner].count++;
+    byEmp[e.owner].types[tk]=(byEmp[e.owner].types[tk]||0)+h;
+  });
+
+  $('d-count').innerHTML=`${DASH_FILTERED.length}<small>건</small>`;
+  $('d-hours').innerHTML=`${Math.round(totalH)}<small>h</small>`;
+  $('d-emp').innerHTML=`${Object.keys(byEmp).length}<small>명</small>`;
+  $('d-pend').innerHTML=`${pend}<small>건</small>`;
+
+  renderBars($('d-bytype'), Object.entries(byType).map(([label,d])=>({label,...d})).sort((a,b)=>b.hours-a.hours));
+
+  const empRows=Object.entries(byEmp).map(([id,d])=>({id,name:nameOf(id),hours:d.hours,count:d.count,top:topType(d.types)})).sort((a,b)=>b.hours-a.hours);
+  const maxH=Math.max(...empRows.map(x=>x.hours),1);
+  $('d-byemp').innerHTML = empRows.length ? empRows.map(x=>`<tr>
+    <td><b>${esc(x.name)}</b></td><td>${x.count}건</td><td>${Math.round(x.hours)}h</td>
+    <td>${esc(x.top)}</td>
+    <td><div class="minibar"><div style="width:${Math.round(x.hours/maxH*100)}%"></div></div></td></tr>`).join('')
+    : '<tr><td colspan="5" style="color:var(--soft);padding:18px">이 기간에 등록된 일정이 없습니다.</td></tr>';
+
+  const sel=$('d-emp-sel'), allEmp=Object.values(MEMBERS).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+  const cur=sel.value;
+  sel.innerHTML=allEmp.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  if(cur && allEmp.some(m=>m.id===cur)) sel.value=cur;
+  renderEmpDetail(sel.value);
+
+  $('dash-loading').classList.add('hidden');
+}
+function renderEmpDetail(id){
+  const el=$('d-emp-detail');
+  if(!id){ el.innerHTML=''; return; }
+  const evs=DASH_FILTERED.filter(e=>e.owner===id);
+  if(!evs.length){ el.innerHTML='<p style="color:var(--soft);font-size:13.5px">이 기간에 등록된 일정이 없습니다.</p>'; return; }
+  const t={}; evs.forEach(e=>{ const k=e.work_type||'미분류'; t[k]=t[k]||{hours:0,count:0}; t[k].hours+=hoursOf(e); t[k].count++; });
+  const items=Object.entries(t).map(([label,d])=>({label,...d})).sort((a,b)=>b.hours-a.hours);
+  const recent=evs.slice().sort((a,b)=> a.start_date<b.start_date?1:-1).slice(0,10);
+  el.innerHTML=`<div id="d-detail-bars" style="margin-bottom:16px"></div>
+    <h4 style="font-size:13px;color:var(--soft);margin:0 0 8px">최근 일정</h4>
+    <div class="table-card" style="border:none"><table style="min-width:520px">
+      <thead><tr><th>일정</th><th>업무유형</th><th>기간</th><th>추정시간</th><th>상태</th></tr></thead>
+      <tbody>${recent.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(e.work_type||'미분류')}</td><td>${e.start_date===(e.end_date||e.start_date)?e.start_date:e.start_date+'~'+e.end_date}</td><td>${fmtH(hoursOf(e))}</td><td>${esc(e.status||'')}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  renderBars($('d-detail-bars'), items);
 }
 
 /* ============ 마이페이지 ============ */
