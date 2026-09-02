@@ -93,6 +93,8 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-cell.today .dnum{background:var(--accent);color:#fff;border-radius:50%;width:21px;height:21px;display:inline-flex;align-items:center;justify-content:center;}
 .dnum.sun{color:#d14343;} .dnum.sat{color:#1f4fd6;}
 .chip{display:block;margin-top:3px;padding:2px 6px;border-radius:5px;font-size:11.5px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.chip-leave{background:#16a34a;}
+.chip-leave.pend{background:#fff;color:#b45309;border:1.5px dashed #f0a020;padding:1px 5px;}
 .swatches{display:flex;gap:8px;flex-wrap:wrap;}
 .swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
 .swatch.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff inset;}
@@ -606,10 +608,15 @@ async function loadEvents(){
   const { data, error } = await db.from('events').select('*').order('start_date', { ascending:true });
   if(error){ alert('일정 조회 오류: '+error.message); EVENTS=[]; return; }
   EVENTS = data || [];
+  // 다른 직원 일정은 공개 뷰(events_shared)에서 제목·기간·색상만 가져옴
+  const have = new Set(EVENTS.map(e=>e.id));
+  const { data:shared } = await db.from('events_shared').select('*');
+  (shared||[]).forEach(e=>{ if(!have.has(e.id)) EVENTS.push({ ...e, _shared:true }); });
+  EVENTS.sort((a,b)=> (a.start_date||'').localeCompare(b.start_date||''));
 }
 async function renderCalendarFull(){
   $('cal-loading').classList.remove('hidden');
-  await loadEvents();
+  await Promise.all([loadEvents(), loadLeaves()]);
   $('cal-loading').classList.add('hidden');
   renderCalendar();
 }
@@ -624,16 +631,24 @@ function renderCalendar(){
     const ds = dstr(d), inMonth = d.getMonth()===calM, dow=d.getDay();
     const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date));
     const chips = evs.map(e=>{
-      const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
+      const tag = (e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
       return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
+    }).join('');
+    // 휴가 표시 (승인 완료 = 초록, 결재 대기 = 점선)
+    const lvs = LEAVES.filter(l => l.status!=='반려' && ds>=l.start_date && ds<=(l.end_date||l.start_date));
+    const lvChips = lvs.map(l=>{
+      const pend = l.status!=='승인';
+      const label = `${nameOf(l.user_id)}·${l.type}` + (pend?' (대기)':'');
+      return `<span class="chip chip-leave${pend?' pend':''}" data-lv="${l.id}" title="${esc(label)} · ${fmtRange(l)}">🏖 ${esc(label)}</span>`;
     }).join('');
     const cls = dow===0?'sun':(dow===6?'sat':'');
     html += `<div class="cal-cell ${inMonth?'':'dim'} ${ds===todayStr?'today':''}" data-day="${ds}">
-      <span class="dnum ${cls}">${d.getDate()}</span>${chips}</div>`;
+      <span class="dnum ${cls}">${d.getDate()}</span>${lvChips}${chips}</div>`;
   }
   $('cal-weeks').innerHTML = html;
   $('cal-weeks').querySelectorAll('.cal-cell').forEach(c=>{
     c.onclick = e => {
+      if(e.target.closest('[data-lv]')){ switchTab('leave'); renderLeave(); return; }
       const chip = e.target.closest('[data-ev]');
       if(chip) openEvent(chip.dataset.ev); else openEvent(null, c.dataset.day);
     };
@@ -644,6 +659,17 @@ function renderSwatches(){
   $('ev-swatches').querySelectorAll('.swatch').forEach(s=> s.onclick=()=>setColor(s.dataset.c));
 }
 function setColor(c){ selectedColor=c; $('ev-swatches').querySelectorAll('.swatch').forEach(s=>s.classList.toggle('sel', s.dataset.c===c)); }
+function setEventModalEditable(on){
+  ['ev-name','ev-type','ev-status','ev-start','ev-end','ev-stime','ev-etime','ev-related'].forEach(i=>{ $(i).disabled=!on; });
+  $('ev-swatches').style.pointerEvents = on ? '' : 'none';
+  $('ev-swatches').style.opacity = on ? '' : '.5';
+  $('ev-save').classList.toggle('hidden', !on);
+}
+function setEventModalDetail(on){
+  // 공유 일정(다른 직원)은 제목·기간만 표시, 업무유형/상태/시간/관련처/색상은 숨김
+  ['ev-type','ev-stime','ev-related'].forEach(i=>{ const r=$(i).closest('.row2')||$(i).closest('.field'); if(r) r.classList.toggle('hidden', !on); });
+  const sw=$('ev-swatches').closest('.field'); if(sw) sw.classList.toggle('hidden', !on);
+}
 function openEvent(id, dateStr){
   renderSwatches();
   if(id){
@@ -656,9 +682,15 @@ function openEvent(id, dateStr){
     $('ev-stime').value=e.start_time||''; $('ev-etime').value=e.end_time||'';
     $('ev-related').value=e.related||'';
     setColor(e.color||COLORS[0]);
-    $('ev-delete').classList.remove('hidden');
-    $('ev-owner-note').textContent = (e.owner!==ME.id) ? ('담당자: '+nameOf(e.owner)) : '';
+    const mine = e.owner===ME.id, canEdit = !e._shared && (mine || ME.role==='super-admin');
+    setEventModalEditable(canEdit);
+    setEventModalDetail(!e._shared);
+    $('ev-delete').classList.toggle('hidden', !canEdit);
+    $('ev-title').textContent = canEdit ? '일정 수정' : '일정 보기';
+    $('ev-owner-note').textContent = mine ? '' : ('담당자: '+nameOf(e.owner) + (canEdit ? '' : ' · 본인 일정만 수정할 수 있습니다'));
   } else {
+    setEventModalEditable(true);
+    setEventModalDetail(true);
     const day = dateStr || dstr(new Date());
     $('ev-title').textContent='일정 등록';
     $('ev-id').value='';
@@ -700,9 +732,10 @@ async function deleteEvent(){
   await renderCalendarFull();
 }
 function exportCSV(){
-  if(!EVENTS.length){ alert('내보낼 일정이 없습니다.'); return; }
+  const mineEv = EVENTS.filter(e=>!e._shared);
+  if(!mineEv.length){ alert('내보낼 일정이 없습니다.'); return; }
   const head=['제목','업무유형','상태','시작일','종료일','시작시간','종료시간','관련처','담당자'];
-  const rows=EVENTS.map(e=>[e.title,e.work_type,e.status,e.start_date,e.end_date,e.start_time,e.end_time,e.related,nameOf(e.owner)]
+  const rows=mineEv.map(e=>[e.title,e.work_type,e.status,e.start_date,e.end_date,e.start_time,e.end_time,e.related,nameOf(e.owner)]
     .map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(','));
   const csv='\ufeff'+[head.join(','),...rows].join('\r\n');
   const a=document.createElement('a');
