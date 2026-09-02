@@ -81,10 +81,10 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
 .cal-title{font-size:18px;font-weight:800;letter-spacing:-.02em;min-width:120px;text-align:center;}
 .cal-grid{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
-.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#faf9f5;border-bottom:1px solid var(--line);}
+.cal-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:#faf9f5;border-bottom:1px solid var(--line);}
 .cal-dow div{padding:8px;text-align:center;font-size:12px;font-weight:700;color:var(--soft);}
-.cal-weeks{display:grid;grid-template-columns:repeat(7,1fr);}
-.cal-cell{min-height:96px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
+.cal-weeks{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));}
+.cal-cell{min-height:96px;min-width:0;overflow:hidden;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
 .cal-cell:nth-child(7n){border-right:none;}
 .cal-cell:hover{background:#fbfaf6;}
 .cal-cell.dim{background:#faf9f7;}
