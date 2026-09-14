@@ -205,6 +205,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
         <div class="cal-title" id="cal-title">—</div>
         <button class="btn secondary sm" id="cal-next">›</button>
         <button class="btn secondary sm" id="cal-today">오늘</button>
+        <select id="cal-filter" style="display:none;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px;background:#fff"></select>
         <button class="btn accent sm" id="cal-new" style="margin-left:auto">+ 일정</button>
       </div>
       <div class="cal-grid">
@@ -433,6 +434,7 @@ function bindEvents(){
   $('cal-today').addEventListener('click', ()=>{ const t=new Date(); calY=t.getFullYear(); calM=t.getMonth(); renderCalendar(); });
   $('cal-new').addEventListener('click', ()=>openEvent(null, dstr(new Date())));
   $('cal-export').addEventListener('click', exportExcel);
+  $('cal-filter').addEventListener('change', renderCalendar);
   $('ev-cancel').addEventListener('click', ()=>$('ev-bg').classList.add('hidden'));
   $('ev-bg').addEventListener('click', e=>{ if(e.target===$('ev-bg')) $('ev-bg').classList.add('hidden'); });
   $('ev-save').addEventListener('click', saveEvent);
@@ -627,18 +629,29 @@ async function renderCalendarFull(){
   $('cal-loading').classList.remove('hidden');
   await loadEvents();
   $('cal-loading').classList.add('hidden');
+  populateCalFilter();
   renderCalendar();
+}
+function populateCalFilter(){
+  const sel=$('cal-filter'); if(!sel) return;
+  if(ME.role!=='super-admin'){ sel.style.display='none'; return; }
+  const cur=sel.value;
+  const members=Object.values(MEMBERS).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+  sel.innerHTML='<option value="all">전체 직원</option>'+members.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  if(cur) sel.value=cur;
+  sel.style.display='';
 }
 function renderCalendar(){
   $('cal-title').textContent = `${calY}년 ${calM+1}월`;
   const first = new Date(calY, calM, 1);
   const gridStart = new Date(calY, calM, 1 - first.getDay());
   const todayStr = dstr(new Date());
+  const fowner = (ME.role==='super-admin' && $('cal-filter')) ? ($('cal-filter').value||'all') : 'all';
   let html='';
   for(let i=0;i<42;i++){
     const d = new Date(gridStart); d.setDate(gridStart.getDate()+i);
     const ds = dstr(d), inMonth = d.getMonth()===calM, dow=d.getDay();
-    const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date));
+    const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date) && (fowner==='all' || e.owner===fowner));
     const chips = evs.map(e=>{
       const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
       return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
