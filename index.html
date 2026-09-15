@@ -85,7 +85,8 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#faf9f5;border-bottom:1px solid var(--line);}
 .cal-dow div{padding:8px;text-align:center;font-size:12px;font-weight:700;color:var(--soft);}
 .cal-weeks{display:grid;grid-template-columns:repeat(7,1fr);}
-.cal-cell{min-height:104px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
+.cal-weeks{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:120px;}
+.cal-cell{height:120px;overflow:hidden;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
 .cal-cell:nth-child(7n){border-right:none;}
 .cal-cell:hover{background:#fbfaf6;}
 .cal-cell.dim{background:#faf9f7;}
@@ -94,12 +95,15 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-cell.today .dnum{background:var(--accent);color:#fff;border-radius:50%;width:21px;height:21px;display:inline-flex;align-items:center;justify-content:center;}
 .dnum.sun{color:#d14343;} .dnum.sat{color:#1f4fd6;}
 .chip{display:block;margin-top:3px;padding:2px 6px;border-radius:5px;font-size:11.5px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.chip.leave{background:#0d9488;}
 .more{font-size:10.5px;color:var(--soft);font-weight:700;margin-top:3px;padding-left:2px;cursor:pointer;}
 .more:hover{color:var(--ink);text-decoration:underline;}
+.day-item{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);}
+.day-item .chip{margin-top:0;max-width:230px;}
 .swatches{display:flex;gap:8px;flex-wrap:wrap;}
 .swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
 .swatch.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff inset;}
-@media(max-width:680px){ .cal-cell{min-height:72px;} .chip{font-size:10.5px;} }
+@media(max-width:680px){ .cal-weeks{grid-auto-rows:88px;} .cal-cell{height:88px;} .chip{font-size:10px;} }
 /* 대시보드 */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
 .seg button{background:#fff;border:none;padding:7px 13px;font-size:13px;font-weight:600;color:var(--soft);border-right:1px solid var(--line);}
@@ -311,6 +315,15 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
   </div>
 </div>
 
+<!-- 날짜 상세(일정·휴가) 모달 -->
+<div id="day-bg" class="modal-bg hidden">
+  <div class="modal">
+    <h3 id="day-title">일정 · 휴가</h3>
+    <div id="day-list" style="margin-bottom:8px"></div>
+    <div class="modal-foot"><button class="btn secondary" id="day-close">닫기</button></div>
+  </div>
+</div>
+
 <!-- 일정 등록/수정 모달 -->
 <div id="ev-bg" class="modal-bg hidden">
   <div class="modal">
@@ -376,7 +389,7 @@ const RESOURCE_EMBED = "";
 
 const $ = id => document.getElementById(id);
 let db = null, ME = null, MEMBERS = {}, LEAVES = [];
-let EVENTS = [], calY = new Date().getFullYear(), calM = new Date().getMonth(), calExpanded = new Set();
+let EVENTS = [], calY = new Date().getFullYear(), calM = new Date().getMonth(), calExpanded = new Set(), CAL_LEAVES = [];
 let dashPeriod = 'month', DASH_FILTERED = [];
 const DCOLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#db2777','#64748b'];
 const COLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#64748b'];
@@ -437,6 +450,8 @@ function bindEvents(){
   $('cal-new').addEventListener('click', ()=>openEvent(null, dstr(new Date())));
   $('cal-export').addEventListener('click', exportExcel);
   $('cal-filter').addEventListener('change', renderCalendar);
+  $('day-close').addEventListener('click', ()=>$('day-bg').classList.add('hidden'));
+  $('day-bg').addEventListener('click', e=>{ if(e.target===$('day-bg')) $('day-bg').classList.add('hidden'); });
   $('ev-cancel').addEventListener('click', ()=>$('ev-bg').classList.add('hidden'));
   $('ev-bg').addEventListener('click', e=>{ if(e.target===$('ev-bg')) $('ev-bg').classList.add('hidden'); });
   $('ev-save').addEventListener('click', saveEvent);
@@ -630,6 +645,8 @@ async function loadEvents(){
 async function renderCalendarFull(){
   $('cal-loading').classList.remove('hidden');
   await loadEvents();
+  const { data:lv } = await db.from('leaves').select('*').eq('status','승인');
+  CAL_LEAVES = lv || [];
   $('cal-loading').classList.add('hidden');
   populateCalFilter();
   renderCalendar();
@@ -643,26 +660,34 @@ function populateCalFilter(){
   if(cur) sel.value=cur;
   sel.style.display='';
 }
+function calFowner(){ return (ME.role==='super-admin' && $('cal-filter')) ? ($('cal-filter').value||'all') : 'all'; }
+function dayItems(ds, fowner){
+  const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date) && (fowner==='all' || e.owner===fowner));
+  const lvs = CAL_LEAVES.filter(l => ds>=l.start_date && ds<=(l.end_date||l.start_date) && (fowner==='all' || l.user_id===fowner));
+  return { evs, lvs, all:[...lvs.map(l=>({t:'leave',v:l})), ...evs.map(e=>({t:'event',v:e}))] };
+}
+function eventChipHTML(e){
+  const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
+  return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
+}
+function leaveChipHTML(l){
+  return `<span class="chip leave" data-leave="1" title="휴가 (${esc(l.type)})">${esc(nameOf(l.user_id))}·${esc(l.type)}</span>`;
+}
 function renderCalendar(){
   $('cal-title').textContent = `${calY}년 ${calM+1}월`;
   const first = new Date(calY, calM, 1);
   const gridStart = new Date(calY, calM, 1 - first.getDay());
   const todayStr = dstr(new Date());
-  const fowner = (ME.role==='super-admin' && $('cal-filter')) ? ($('cal-filter').value||'all') : 'all';
+  const fowner = calFowner();
   let html='';
   for(let i=0;i<42;i++){
     const d = new Date(gridStart); d.setDate(gridStart.getDate()+i);
     const ds = dstr(d), inMonth = d.getMonth()===calM, dow=d.getDay();
-    const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date) && (fowner==='all' || e.owner===fowner));
-    const expanded = calExpanded.has(ds);
-    const shown = expanded ? evs : evs.slice(0,3);
-    const chips = shown.map(e=>{
-      const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
-      return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
-    }).join('');
-    const moreN = evs.length - shown.length;
-    const more = moreN>0 ? `<div class="more" data-more="${ds}">+${moreN} 더보기</div>`
-                : (expanded && evs.length>3 ? `<div class="more" data-more="${ds}">접기</div>` : '');
+    const { all } = dayItems(ds, fowner);
+    const shown = all.slice(0,3);
+    const chips = shown.map(it => it.t==='event' ? eventChipHTML(it.v) : leaveChipHTML(it.v)).join('');
+    const moreN = all.length - shown.length;
+    const more = moreN>0 ? `<div class="more" data-day-more="${ds}">+${moreN} 더보기</div>` : '';
     const cls = dow===0?'sun':(dow===6?'sat':'');
     html += `<div class="cal-cell ${inMonth?'':'dim'} ${ds===todayStr?'today':''}" data-day="${ds}">
       <span class="dnum ${cls}">${d.getDate()}</span>${chips}${more}</div>`;
@@ -670,12 +695,23 @@ function renderCalendar(){
   $('cal-weeks').innerHTML = html;
   $('cal-weeks').querySelectorAll('.cal-cell').forEach(c=>{
     c.onclick = e => {
-      const more = e.target.closest('[data-more]');
-      if(more){ const k=more.dataset.more; calExpanded.has(k)?calExpanded.delete(k):calExpanded.add(k); renderCalendar(); return; }
-      const chip = e.target.closest('[data-ev]');
-      if(chip) openEvent(chip.dataset.ev); else openEvent(null, c.dataset.day);
+      const more = e.target.closest('[data-day-more]'); if(more){ openDay(more.dataset.dayMore); return; }
+      const lv = e.target.closest('[data-leave]'); if(lv){ openDay(c.dataset.day); return; }
+      const chip = e.target.closest('[data-ev]'); if(chip){ openEvent(chip.dataset.ev); return; }
+      openEvent(null, c.dataset.day);
     };
   });
+}
+function openDay(ds){
+  const { evs, lvs } = dayItems(ds, calFowner());
+  $('day-title').textContent = ds + ' · 일정 · 휴가';
+  let h='';
+  h += lvs.map(l=>`<div class="day-item"><span class="chip leave" style="pointer-events:none">${esc(nameOf(l.user_id))}·${esc(l.type)}</span><span style="color:var(--soft);font-size:12px">${l.start_date===(l.end_date||l.start_date)?l.start_date:l.start_date+'~'+l.end_date} (${l.days}일)</span></div>`).join('');
+  h += evs.map(e=>`<div class="day-item" data-ev="${e.id}" style="cursor:pointer"><span class="chip" style="background:${e.color||'#1f4fd6'};pointer-events:none">${(ME.role==='super-admin'&&e.owner!==ME.id?esc(nameOf(e.owner))+'·':'')}${esc(e.title)}</span><span style="color:var(--soft);font-size:12px">${esc(e.status||'')}</span></div>`).join('');
+  if(!h) h='<p style="color:var(--soft);font-size:13.5px;padding:6px 0">이 날의 일정·휴가가 없습니다.</p>';
+  $('day-list').innerHTML=h;
+  $('day-list').querySelectorAll('[data-ev]').forEach(el=>el.onclick=()=>{ $('day-bg').classList.add('hidden'); openEvent(el.dataset.ev); });
+  $('day-bg').classList.remove('hidden');
 }
 function renderSwatches(){
   $('ev-swatches').innerHTML = COLORS.map(c=>`<div class="swatch" data-c="${c}" style="background:${c}"></div>`).join('');
