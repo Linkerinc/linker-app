@@ -85,7 +85,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#faf9f5;border-bottom:1px solid var(--line);}
 .cal-dow div{padding:8px;text-align:center;font-size:12px;font-weight:700;color:var(--soft);}
 .cal-weeks{display:grid;grid-template-columns:repeat(7,1fr);}
-.cal-cell{min-height:96px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
+.cal-cell{min-height:104px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;cursor:pointer;}
 .cal-cell:nth-child(7n){border-right:none;}
 .cal-cell:hover{background:#fbfaf6;}
 .cal-cell.dim{background:#faf9f7;}
@@ -94,6 +94,8 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 .cal-cell.today .dnum{background:var(--accent);color:#fff;border-radius:50%;width:21px;height:21px;display:inline-flex;align-items:center;justify-content:center;}
 .dnum.sun{color:#d14343;} .dnum.sat{color:#1f4fd6;}
 .chip{display:block;margin-top:3px;padding:2px 6px;border-radius:5px;font-size:11.5px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.more{font-size:10.5px;color:var(--soft);font-weight:700;margin-top:3px;padding-left:2px;cursor:pointer;}
+.more:hover{color:var(--ink);text-decoration:underline;}
 .swatches{display:flex;gap:8px;flex-wrap:wrap;}
 .swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
 .swatch.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff inset;}
@@ -374,7 +376,7 @@ const RESOURCE_EMBED = "";
 
 const $ = id => document.getElementById(id);
 let db = null, ME = null, MEMBERS = {}, LEAVES = [];
-let EVENTS = [], calY = new Date().getFullYear(), calM = new Date().getMonth();
+let EVENTS = [], calY = new Date().getFullYear(), calM = new Date().getMonth(), calExpanded = new Set();
 let dashPeriod = 'month', DASH_FILTERED = [];
 const DCOLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#db2777','#64748b'];
 const COLORS = ['#1f4fd6','#16a34a','#f0a020','#d14343','#7c3aed','#0891b2','#64748b'];
@@ -652,17 +654,24 @@ function renderCalendar(){
     const d = new Date(gridStart); d.setDate(gridStart.getDate()+i);
     const ds = dstr(d), inMonth = d.getMonth()===calM, dow=d.getDay();
     const evs = EVENTS.filter(e => ds>=e.start_date && ds<=(e.end_date||e.start_date) && (fowner==='all' || e.owner===fowner));
-    const chips = evs.map(e=>{
+    const expanded = calExpanded.has(ds);
+    const shown = expanded ? evs : evs.slice(0,3);
+    const chips = shown.map(e=>{
       const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
       return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
     }).join('');
+    const moreN = evs.length - shown.length;
+    const more = moreN>0 ? `<div class="more" data-more="${ds}">+${moreN} 더보기</div>`
+                : (expanded && evs.length>3 ? `<div class="more" data-more="${ds}">접기</div>` : '');
     const cls = dow===0?'sun':(dow===6?'sat':'');
     html += `<div class="cal-cell ${inMonth?'':'dim'} ${ds===todayStr?'today':''}" data-day="${ds}">
-      <span class="dnum ${cls}">${d.getDate()}</span>${chips}</div>`;
+      <span class="dnum ${cls}">${d.getDate()}</span>${chips}${more}</div>`;
   }
   $('cal-weeks').innerHTML = html;
   $('cal-weeks').querySelectorAll('.cal-cell').forEach(c=>{
     c.onclick = e => {
+      const more = e.target.closest('[data-more]');
+      if(more){ const k=more.dataset.more; calExpanded.has(k)?calExpanded.delete(k):calExpanded.add(k); renderCalendar(); return; }
       const chip = e.target.closest('[data-ev]');
       if(chip) openEvent(chip.dataset.ev); else openEvent(null, c.dataset.day);
     };
