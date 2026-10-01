@@ -207,7 +207,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
     <section id="tab-pay" class="hidden">
       <div class="page-head">
         <div><h2>결제요청</h2><p>입금(결제) 요청을 올리면 1차 결재 → 최고관리자 최종 결재를 거칩니다.</p></div>
-        <button class="btn accent sm" id="pay-new">+ 결제 요청</button>
+        <div style="display:flex;gap:8px"><button class="btn secondary sm" id="pay-export">엑셀 내보내기</button><button class="btn accent sm" id="pay-new">+ 결제 요청</button></div>
       </div>
       <div id="pay-approve-wrap" class="card hidden">
         <h3 id="pay-approve-title" style="font-size:16px;margin-bottom:8px;">결재 대기함</h3>
@@ -343,7 +343,8 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
 <!-- 결제요청 모달 -->
 <div id="pay-bg" class="modal-bg hidden">
   <div class="modal" style="max-width:480px">
-    <h3>결제(입금) 요청</h3>
+    <h3 id="pay-modal-title">결제(입금) 요청</h3>
+    <input type="hidden" id="pay-id" />
     <div class="field"><label>카테고리</label>
       <input id="p-cat" list="p-cat-list" placeholder="예: 인쇄/제작, 콘텐츠, 배송, 비품" />
       <datalist id="p-cat-list"><option>인쇄/제작</option><option>콘텐츠</option><option>광고/마케팅</option><option>외주</option><option>비품</option><option>배송</option><option>기타</option></datalist>
@@ -356,7 +357,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
     </div>
     <div class="field"><label>계좌번호</label><input id="p-acc" placeholder="예: 278537-04-001459" /></div>
     <div class="field"><label>비고 (선택)</label><input id="p-memo" placeholder="메모" /></div>
-    <div class="field"><label>첨부파일 (선택 · 이미지·PDF, 여러 개 가능)</label><input id="p-files" type="file" multiple accept="image/*,.pdf" style="width:100%;font-size:13px" /></div>
+    <div class="field" id="pay-file-field"><label>첨부파일 (선택 · 이미지·PDF, 여러 개 가능)</label><input id="p-files" type="file" multiple accept="image/*,.pdf" style="width:100%;font-size:13px" /></div>
     <div class="modal-foot"><button class="btn secondary" id="pay-cancel">취소</button><button class="btn accent" id="pay-submit">요청</button></div>
   </div>
 </div>
@@ -541,7 +542,8 @@ function bindEvents(){
     if(!b.disabled) b.addEventListener('click', ()=>switchTab(b.dataset.tab));
   });
   $('leave-new').addEventListener('click', openLeaveModal);
-  $('pay-new').addEventListener('click', openPayModal);
+  $('pay-new').addEventListener('click', ()=>openPayModal(null));
+  $('pay-export').addEventListener('click', exportPayments);
   $('pay-cancel').addEventListener('click', ()=>$('pay-bg').classList.add('hidden'));
   $('pay-bg').addEventListener('click', e=>{ if(e.target===$('pay-bg')) $('pay-bg').classList.add('hidden'); });
   $('pay-submit').addEventListener('click', submitPayment);
@@ -763,7 +765,7 @@ async function decide(id, action){
 
 /* ============ 캘린더 ============ */
 async function loadEvents(){
-  const { data, error } = await db.from('events').select('*').order('start_date', { ascending:true });
+  const { data, error } = await db.from('events_view').select('*').order('start_date', { ascending:true });
   if(error){ alert('일정 조회 오류: '+error.message); EVENTS=[]; return; }
   EVENTS = data || [];
 }
@@ -804,7 +806,7 @@ function dayItems(ds, fowner){
   return { evs, lvs, projs, todos, all };
 }
 function eventChipHTML(e){
-  const tag = (ME.role==='super-admin' && e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
+  const tag = (e.owner!==ME.id) ? esc(nameOf(e.owner))+'·' : '';
   return `<span class="chip" style="background:${e.color||'#1f4fd6'}" data-ev="${e.id}" title="${esc(e.title)}">${tag}${esc(e.title)}</span>`;
 }
 function leaveChipHTML(l){
@@ -852,7 +854,7 @@ function openDay(ds){
   h += lvs.map(l=>`<div class="day-item"><span class="chip leave" style="pointer-events:none">${esc(nameOf(l.user_id))}·${esc(l.type)}</span><span style="color:var(--soft);font-size:12px">${l.start_date===(l.end_date||l.start_date)?l.start_date:l.start_date+'~'+l.end_date} (${l.days}일)</span></div>`).join('');
   h += projs.map(p=>`<div class="day-item" data-proj="${p.id}" style="cursor:pointer"><span class="chip proj" style="pointer-events:none">📁 ${esc(p.title)} 마감</span></div>`).join('');
   h += todos.map(x=>`<div class="day-item" data-proj="${x.p.id}" style="cursor:pointer"><span class="chip todo" style="pointer-events:none">☑ ${esc(x.t.text)}</span><span style="color:var(--soft);font-size:12px">${esc(x.p.title)}</span></div>`).join('');
-  h += evs.map(e=>`<div class="day-item" data-ev="${e.id}" style="cursor:pointer"><span class="chip" style="background:${e.color||'#1f4fd6'};pointer-events:none">${(ME.role==='super-admin'&&e.owner!==ME.id?esc(nameOf(e.owner))+'·':'')}${esc(e.title)}</span><span style="color:var(--soft);font-size:12px">${esc(e.status||'')}</span></div>`).join('');
+  h += evs.map(e=>`<div class="day-item" data-ev="${e.id}" style="cursor:pointer"><span class="chip" style="background:${e.color||'#1f4fd6'};pointer-events:none">${(e.owner!==ME.id?esc(nameOf(e.owner))+'·':'')}${esc(e.title)}</span><span style="color:var(--soft);font-size:12px">${esc(e.status||'')}</span></div>`).join('');
   if(!h) h='<p style="color:var(--soft);font-size:13.5px;padding:6px 0">이 날의 항목이 없습니다.</p>';
   $('day-list').innerHTML=h;
   $('day-list').querySelectorAll('[data-ev]').forEach(el=>el.onclick=()=>{ $('day-bg').classList.add('hidden'); openEvent(el.dataset.ev); });
@@ -864,10 +866,35 @@ function renderSwatches(){
   $('ev-swatches').querySelectorAll('.swatch').forEach(s=> s.onclick=()=>setColor(s.dataset.c));
 }
 function setColor(c){ selectedColor=c; $('ev-swatches').querySelectorAll('.swatch').forEach(s=>s.classList.toggle('sel', s.dataset.c===c)); }
+function setEvReadonly(ro){
+  const groups=[
+    $('ev-type').closest('.row2'),
+    $('ev-start').closest('.row2'),
+    $('ev-stime').closest('.row2'),
+    $('ev-related').closest('.field'),
+    $('ev-swatches').closest('.field'),
+    $('ev-save')
+  ];
+  groups.forEach(el=>{ if(el) el.style.display = ro?'none':''; });
+  $('ev-name').disabled = ro;
+}
 function openEvent(id, dateStr){
   renderSwatches();
   if(id){
     const e = EVENTS.find(x=>x.id===id); if(!e) return;
+    const mine = (e.owner===ME.id) || (ME.role==='super-admin');
+    if(!mine){
+      // 타인 일정 — 제목만, 상세 비공개
+      setEvReadonly(true);
+      $('ev-title').textContent = '일정 · 비공개';
+      $('ev-id').value = '';
+      $('ev-name').value = e.title||'';
+      $('ev-delete').classList.add('hidden');
+      $('ev-owner-note').textContent = '담당자: '+nameOf(e.owner)+' · 상세 내용은 비공개입니다.';
+      $('ev-bg').classList.remove('hidden');
+      return;
+    }
+    setEvReadonly(false);
     $('ev-title').textContent = '일정 수정';
     $('ev-id').value=e.id;
     $('ev-name').value=e.title||''; $('ev-type').value=e.work_type||'';
@@ -879,6 +906,7 @@ function openEvent(id, dateStr){
     $('ev-delete').classList.remove('hidden');
     $('ev-owner-note').textContent = (e.owner!==ME.id) ? ('담당자: '+nameOf(e.owner)) : '';
   } else {
+    setEvReadonly(false);
     const day = dateStr || dstr(new Date());
     $('ev-title').textContent='일정 등록';
     $('ev-id').value='';
@@ -921,9 +949,9 @@ async function deleteEvent(){
 }
 async function exportExcel(){
   if(typeof XLSX==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인 후 다시 시도하세요.'); return; }
-  const { data:evs } = await db.from('events').select('*').order('start_date',{ascending:true});
+  const { data:evs } = await db.from('events_view').select('*').order('start_date',{ascending:true});
   const { data:lvs } = await db.from('leaves').select('*').order('start_date',{ascending:false});
-  const events=evs||[], leaves=lvs||[];
+  const events=(evs||[]).filter(e=>e.can_view!==false), leaves=lvs||[];
   if(!events.length && !leaves.length){ alert('내보낼 데이터가 없습니다.'); return; }
   if(!Object.keys(MEMBERS).length){ const {data:mem}=await db.from('profiles').select('id,name'); (mem||[]).forEach(m=>MEMBERS[m.id]=m); }
 
@@ -1009,9 +1037,10 @@ async function addStaff(){
 }
 
 /* ============ 결제요청 ============ */
-const PAY_COLOR={'1차대기':'#f0a020','2차대기':'#1f4fd6','완료':'#16a34a','반려':'#d14343'};
-const PAY_LABEL={'1차대기':'1차 결재 대기','2차대기':'최고관리자 결재 대기','완료':'결제 완료','반려':'반려'};
+const PAY_COLOR={'1차대기':'#f0a020','2차대기':'#1f4fd6','수락':'#7c3aed','완료':'#16a34a','반려':'#d14343'};
+const PAY_LABEL={'1차대기':'1차 결재 대기','2차대기':'최고관리자 수락 대기','수락':'수락됨 · 입금 대기','완료':'결제 완료','반려':'반려'};
 const won = n => (Number(n)||0).toLocaleString('ko-KR')+'원';
+const fmtTs = t => t ? String(t).slice(0,16).replace('T',' ') : '';
 function attHTML(p){
   const a=Array.isArray(p.attachments)?p.attachments:[];
   if(!a.length) return '';
@@ -1030,6 +1059,19 @@ async function loadPayments(){
   if(error){ alert('결제요청 조회 오류: '+error.message); PAYMENTS=[]; return; }
   PAYMENTS=data||[];
 }
+function payActions(p, role){
+  const b=[];
+  if(role==='super-admin'){
+    if(p.status==='2차대기') b.push(`<button class="del-btn" style="color:var(--ok)" data-act="수락" data-id="${p.id}">요청수락</button>`);
+    else if(p.status==='수락') b.push(`<button class="del-btn" style="color:var(--ok)" data-act="완료" data-id="${p.id}">결제완료</button>`);
+    if(p.status!=='완료'&&p.status!=='반려') b.push(`<button class="del-btn" data-act="반려" data-id="${p.id}">반려</button>`);
+    b.push(`<button class="del-btn" style="color:var(--accent)" data-edit="${p.id}">수정</button>`);
+  } else if(role==='team-lead' && p.status==='1차대기' && p.requester!==ME.id){
+    b.push(`<button class="del-btn" style="color:var(--ok)" data-act="승인" data-id="${p.id}">승인</button>`);
+    b.push(`<button class="del-btn" data-act="반려" data-id="${p.id}">반려</button>`);
+  }
+  return b.length?b.join(' '):'-';
+}
 async function renderPayments(){
   $('pay-loading').classList.remove('hidden');
   await loadPayments();
@@ -1037,22 +1079,25 @@ async function renderPayments(){
   const role=ME.role, showQ = role==='team-lead'||role==='super-admin';
   $('pay-approve-wrap').classList.toggle('hidden', !showQ);
   if(showQ){
-    const stage = role==='team-lead' ? '1차대기' : '2차대기';
-    $('pay-approve-title').textContent = role==='team-lead' ? '1차 결재 대기함' : '최종 결재 대기함 (최고관리자)';
-    const q = PAYMENTS.filter(p=>p.status===stage && p.requester!==ME.id);
-    $('pay-approve-body').innerHTML = q.length ? q.map(p=>`
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)">
-        <div style="flex:1;min-width:230px"><b>${esc(nameOf(p.requester))}</b> · ${esc(p.category||'')} · ${esc(p.item||'')}<br>
+    let q;
+    if(role==='team-lead'){ $('pay-approve-title').textContent='1차 결재 대기함'; q=PAYMENTS.filter(p=>p.status==='1차대기'&&p.requester!==ME.id); }
+    else { $('pay-approve-title').textContent='결재 · 입금 처리함 (최고관리자)'; q=PAYMENTS.filter(p=>p.status==='2차대기'||p.status==='수락'); }
+    $('pay-approve-body').innerHTML = q.length ? q.map(p=>{
+      let btns;
+      if(role==='team-lead') btns=`<button class="btn ok sm" data-act="승인" data-id="${p.id}">승인</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
+      else if(p.status==='2차대기') btns=`<button class="btn accent sm" data-act="수락" data-id="${p.id}">요청 수락</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
+      else btns=`<button class="btn ok sm" data-act="완료" data-id="${p.id}">결제 완료</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
+      const badge = role==='super-admin' ? `<span class="pill" style="background:${PAY_COLOR[p.status]};font-size:11px">${PAY_LABEL[p.status]}</span> ` : '';
+      return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)">
+        <div style="flex:1;min-width:230px">${badge}<b>${esc(nameOf(p.requester))}</b> · ${esc(p.category||'')} · ${esc(p.item||'')}<br>
           <span style="color:var(--soft);font-size:12.5px">${won(p.amount)} · ${esc(p.bank||'')} ${esc(p.account_no||'')} ${p.account_holder?'('+esc(p.account_holder)+')':''}</span>
           ${p.memo?`<br><span style="font-size:12px;color:var(--soft)">비고: ${esc(p.memo)}</span>`:''}
           ${(p.attachments&&p.attachments.length)?`<br>${attHTML(p)}`:''}
-          ${role==='super-admin'&&p.first_approver_name?`<br><span style="font-size:12px;color:var(--soft)">1차(${esc(p.first_approver_name)}) 승인 완료</span>`:''}
-        </div>
-        <button class="btn ok sm" data-ok="${p.id}">승인</button>
-        <button class="btn danger sm" data-no="${p.id}">반려</button>
-      </div>`).join('') : '<p style="color:var(--soft);font-size:13.5px;margin:6px 0">대기 중인 결재가 없습니다.</p>';
-    $('pay-approve-body').querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.ok,'승인'));
-    $('pay-approve-body').querySelectorAll('[data-no]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.no,'반려'));
+          ${p.first_approver_name?`<br><span style="font-size:12px;color:var(--soft)">1차(${esc(p.first_approver_name)}) 승인 완료</span>`:''}
+        </div>${btns}
+      </div>`;
+    }).join('') : '<p style="color:var(--soft);font-size:13.5px;margin:6px 0">처리할 요청이 없습니다.</p>';
+    $('pay-approve-body').querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.id,b.dataset.act));
   }
   let rows;
   if(role==='super-admin') rows=PAYMENTS.slice();
@@ -1061,7 +1106,6 @@ async function renderPayments(){
   const seeOthers = role!=='employee';
   $('pay-empty').classList.toggle('hidden', rows.length>0);
   $('pay-body').innerHTML = rows.map(p=>{
-    const canAct=(role==='super-admin'&&p.status==='2차대기')||(role==='team-lead'&&p.status==='1차대기'&&p.requester!==ME.id);
     const rej=p.status==='반려'&&p.reject_reason?`<br><span style="color:var(--danger);font-size:12px">반려(${esc(p.rejected_by||'')}): ${esc(p.reject_reason)}</span>`:'';
     return `<tr>
       <td>${(p.requested_at||'').slice(0,10)}</td>
@@ -1071,41 +1115,68 @@ async function renderPayments(){
       <td>${won(p.amount)}</td>
       <td style="font-size:12.5px">${esc(p.bank||'')} ${esc(p.account_no||'')}${p.account_holder?'<br>'+esc(p.account_holder):''}</td>
       <td><span class="pill" style="background:${PAY_COLOR[p.status]}">${PAY_LABEL[p.status]}</span></td>
-      <td class="pay-adm">${canAct?`<button class="del-btn" style="color:var(--ok)" data-ok="${p.id}">승인</button> <button class="del-btn" data-no="${p.id}">반려</button>`:'-'}</td>
+      <td class="pay-adm">${payActions(p, role)}</td>
     </tr>`;
   }).join('');
-  $('pay-body').querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.ok,'승인'));
-  $('pay-body').querySelectorAll('[data-no]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.no,'반려'));
+  $('pay-body').querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.id,b.dataset.act));
+  $('pay-body').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.edit));
   document.querySelectorAll('.pay-adm').forEach(el=>el.style.display=seeOthers?'':'none');
   bindAttLinks();
 }
-function openPayModal(){
-  ['p-cat','p-item','p-amount','p-bank','p-holder','p-acc','p-memo'].forEach(id=>$(id).value='');
-  $('p-files').value='';
+function exportPayments(){
+  if(typeof XLSX==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했습니다.'); return; }
+  if(!PAYMENTS.length){ alert('내보낼 데이터가 없습니다.'); return; }
+  const head=['요청일시','요청자','카테고리','품명','금액','입금은행','예금주','계좌번호','비고','상태','1차결재자','1차승인','수락일시','결제완료일시'];
+  const rows=PAYMENTS.map(p=>[fmtTs(p.requested_at),nameOf(p.requester),p.category||'',p.item||'',Number(p.amount)||0,p.bank||'',p.account_holder||'',p.account_no||'',p.memo||'',PAY_LABEL[p.status]||p.status,p.first_approver_name||'',fmtTs(p.first_approved_at),fmtTs(p.accepted_at),fmtTs(p.final_approved_at)]);
+  const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
+  ws['!cols']=[{wch:16},{wch:9},{wch:12},{wch:26},{wch:12},{wch:11},{wch:12},{wch:18},{wch:18},{wch:15},{wch:9},{wch:16},{wch:16},{wch:16}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '결제요청');
+  XLSX.writeFile(wb, `링커_결제요청_${dstr(new Date())}.xlsx`);
+}
+function openPayModal(id){
+  const p = id ? PAYMENTS.find(x=>x.id===id) : null;
+  $('pay-id').value = p?p.id:'';
+  $('p-cat').value=p?(p.category||''):''; $('p-item').value=p?(p.item||''):'';
+  $('p-amount').value=p?(p.amount||''):''; $('p-bank').value=p?(p.bank||''):'';
+  $('p-holder').value=p?(p.account_holder||''):''; $('p-acc').value=p?(p.account_no||''):'';
+  $('p-memo').value=p?(p.memo||''):''; $('p-files').value='';
+  $('pay-modal-title').textContent = p?'결제요청 수정 (최고관리자)':'결제(입금) 요청';
+  $('pay-file-field').style.display = p?'none':'';   // 수정 시 첨부 변경은 생략
+  $('pay-submit').textContent = p?'저장':'요청';
   $('pay-bg').classList.remove('hidden');
 }
 async function submitPayment(){
+  const id=$('pay-id').value;
   const category=$('p-cat').value.trim(), item=$('p-item').value.trim(), amount=Number($('p-amount').value)||0;
   const bank=$('p-bank').value.trim(), account_no=$('p-acc').value.trim();
   if(!item||!amount||!bank||!account_no){ alert('품명·금액·입금은행·계좌번호는 필수입니다.'); return; }
+  const holder=$('p-holder').value.trim()||null, memo=$('p-memo').value.trim()||null;
+  if(id){
+    // 최고관리자 수정 — 내용만 변경
+    $('pay-submit').disabled=true; $('pay-submit').textContent='저장 중…';
+    const { error } = await db.from('payments').update({ category, item, amount, bank, account_holder:holder, account_no, memo }).eq('id', id);
+    $('pay-submit').disabled=false; $('pay-submit').textContent='저장';
+    if(error){ alert('수정 오류: '+error.message); return; }
+    $('pay-bg').classList.add('hidden'); await renderPayments(); return;
+  }
+  // 신규 — 첨부 업로드 후 기안
   $('pay-submit').disabled=true; $('pay-submit').textContent='업로드/요청 중…';
-  // 첨부 업로드 (본인 폴더에)
   const attachments=[];
   for(const f of $('p-files').files){
     if(f.size > 15*1024*1024){ $('pay-submit').disabled=false; $('pay-submit').textContent='요청'; alert(`파일이 너무 큽니다(15MB 초과): ${f.name}`); return; }
-    const safe=f.name.replace(/[^\w.\-가-힣]/g,'_');
-    const path=`${ME.id}/${Date.now()}_${Math.random().toString(36).slice(2,7)}_${safe}`;
-    const { error:upErr } = await db.storage.from('payment-files').upload(path, f, { upsert:false });
+    const ext=((f.name.split('.').pop()||'bin').match(/[a-zA-Z0-9]+/)||['bin'])[0].toLowerCase().slice(0,8);
+    const path=`${ME.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;   // 키는 ASCII만
+    const { error:upErr } = await db.storage.from('payment-files').upload(path, f, { upsert:false, contentType:f.type||undefined });
     if(upErr){ $('pay-submit').disabled=false; $('pay-submit').textContent='요청'; alert('첨부 업로드 오류: '+upErr.message); return; }
-    attachments.push({ path, name:f.name });
+    attachments.push({ path, name:f.name });   // 원래 파일명은 따로 보관(한글 OK)
   }
   let status, extra={};
-  if(ME.role==='super-admin'){ status='완료'; extra.final_approved_at=new Date().toISOString(); }
+  if(ME.role==='super-admin'){ status='수락'; extra.accepted_at=new Date().toISOString(); }
   else if(ME.role==='team-lead'){ status='2차대기'; }
   else status='1차대기';
   const { error } = await db.from('payments').insert({
     requester:ME.id, requester_name:ME.name, category, item, amount,
-    bank, account_holder:$('p-holder').value.trim()||null, account_no, memo:$('p-memo').value.trim()||null, status, attachments, ...extra
+    bank, account_holder:holder, account_no, memo, status, attachments, ...extra
   });
   $('pay-submit').disabled=false; $('pay-submit').textContent='요청';
   if(error){ alert('요청 오류: '+error.message); return; }
@@ -1118,9 +1189,11 @@ async function decidePayment(id, action){
   if(action==='반려'){
     const r=prompt('반려 사유를 입력하세요.',''); if(r===null) return;
     patch={ status:'반려', rejected_by:ME.name, reject_reason:(r||'').trim() };
-  } else if(p.status==='1차대기'){
+  } else if(action==='승인' && p.status==='1차대기'){
     patch={ status:'2차대기', first_approver:ME.id, first_approver_name:ME.name, first_approved_at:new Date().toISOString() };
-  } else if(p.status==='2차대기'){
+  } else if(action==='수락' && p.status==='2차대기'){
+    patch={ status:'수락', accepted_at:new Date().toISOString() };
+  } else if(action==='완료' && p.status==='수락'){
     patch={ status:'완료', final_approved_at:new Date().toISOString() };
   } else return;
   const { error } = await db.from('payments').update(patch).eq('id',id);
@@ -1327,7 +1400,7 @@ function renderBars(el, items){
 }
 async function loadDashboard(){
   $('dash-loading').classList.remove('hidden');
-  const { data:evs, error } = await db.from('events').select('*');
+  const { data:evs, error } = await db.from('events_view').select('*');
   if(error){ alert('대시보드 조회 오류: '+error.message); $('dash-loading').classList.add('hidden'); return; }
   let pend=0;
   try{ const { data:lv } = await db.from('leaves').select('status'); pend=(lv||[]).filter(l=>l.status==='1차대기'||l.status==='2차대기').length; }catch(_){}
