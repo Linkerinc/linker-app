@@ -207,7 +207,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
     <section id="tab-pay" class="hidden">
       <div class="page-head">
         <div><h2>결제요청</h2><p>입금(결제) 요청을 올리면 1차 결재 → 최고관리자 최종 결재를 거칩니다.</p></div>
-        <div style="display:flex;gap:8px"><button class="btn secondary sm" id="pay-export">엑셀 내보내기</button><button class="btn accent sm" id="pay-new">+ 결제 요청</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary sm" id="pay-export">엑셀 내보내기</button><button class="btn secondary sm" id="pay-new-buy">+ 구매 요청</button><button class="btn accent sm" id="pay-new">+ 결제 요청</button></div>
       </div>
       <div id="pay-approve-wrap" class="card hidden">
         <h3 id="pay-approve-title" style="font-size:16px;margin-bottom:8px;">결재 대기함</h3>
@@ -215,7 +215,7 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
       </div>
       <div class="table-card">
         <table style="min-width:860px">
-          <thead><tr><th>요청일</th><th class="pay-adm">기안자</th><th>카테고리</th><th>품명</th><th>금액</th><th>입금정보</th><th>상태</th><th class="pay-adm">결재</th></tr></thead>
+          <thead><tr><th>요청일</th><th class="pay-adm">기안자</th><th>카테고리</th><th>품명</th><th>금액</th><th>입금/구매 정보</th><th>상태</th><th class="pay-adm">결재</th></tr></thead>
           <tbody id="pay-body"></tbody>
         </table>
         <div class="empty hidden" id="pay-empty">요청 내역이 없습니다.</div>
@@ -345,19 +345,26 @@ th{background:#faf9f5;color:var(--soft);font-weight:700;font-size:12.5px;white-s
   <div class="modal" style="max-width:480px">
     <h3 id="pay-modal-title">결제(입금) 요청</h3>
     <input type="hidden" id="pay-id" />
+    <input type="hidden" id="pay-kind" value="입금" />
     <div class="field"><label>카테고리</label>
       <input id="p-cat" list="p-cat-list" placeholder="예: 인쇄/제작, 콘텐츠, 배송, 비품" />
       <datalist id="p-cat-list"><option>인쇄/제작</option><option>콘텐츠</option><option>광고/마케팅</option><option>외주</option><option>비품</option><option>배송</option><option>기타</option></datalist>
     </div>
-    <div class="field"><label>품명</label><input id="p-item" placeholder="예: 뉴클래식레더 A5메모패드+볼펜 세트" /></div>
-    <div class="field"><label>금액 (원, 부가세 포함)</label><input id="p-amount" type="number" min="0" placeholder="336600" /></div>
-    <div class="row2">
-      <div class="field"><label>입금은행</label><input id="p-bank" placeholder="예: 국민은행" /></div>
-      <div class="field"><label>예금주</label><input id="p-holder" placeholder="예: 고려기프트(주)" /></div>
+    <div class="field"><label id="p-item-label">품명</label><input id="p-item" placeholder="예: 뉴클래식레더 A5메모패드+볼펜 세트" /></div>
+    <div id="buy-only" style="display:none">
+      <div class="field"><label>상품 링크</label><input id="p-url" placeholder="예: https://www.coupang.com/..." /></div>
+      <div class="field"><label>옵션 · 수량</label><input id="p-opt" placeholder="예: 화이트 400매 x 2개" /></div>
     </div>
-    <div class="field"><label>계좌번호</label><input id="p-acc" placeholder="예: 278537-04-001459" /></div>
-    <div class="field"><label>비고 (선택)</label><input id="p-memo" placeholder="메모" /></div>
-    <div class="field" id="pay-file-field"><label>첨부파일 (선택 · 이미지·PDF, 여러 개 가능)</label><input id="p-files" type="file" multiple accept="image/*,.pdf" style="width:100%;font-size:13px" /></div>
+    <div class="field"><label id="p-amount-label">금액 (원, 부가세 포함)</label><input id="p-amount" type="number" min="0" placeholder="336600" /></div>
+    <div id="pay-only">
+      <div class="row2">
+        <div class="field"><label>입금은행</label><input id="p-bank" placeholder="예: 국민은행" /></div>
+        <div class="field"><label>예금주</label><input id="p-holder" placeholder="예: 고려기프트(주)" /></div>
+      </div>
+      <div class="field"><label>계좌번호</label><input id="p-acc" placeholder="예: 278537-04-001459" /></div>
+    </div>
+    <div class="field"><label>메모 (선택)</label><textarea id="p-memo" rows="2" placeholder="참고 사항 · 요청 내용 등" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;background:#fbfbf9;resize:vertical"></textarea></div>
+    <div class="field" id="pay-file-field"><label id="pay-file-label">첨부파일 (선택 · 이미지·PDF, 여러 개 가능)</label><input id="p-files" type="file" multiple accept="image/*,.pdf" style="width:100%;font-size:13px" /></div>
     <div class="modal-foot"><button class="btn secondary" id="pay-cancel">취소</button><button class="btn accent" id="pay-submit">요청</button></div>
   </div>
 </div>
@@ -542,7 +549,8 @@ function bindEvents(){
     if(!b.disabled) b.addEventListener('click', ()=>switchTab(b.dataset.tab));
   });
   $('leave-new').addEventListener('click', openLeaveModal);
-  $('pay-new').addEventListener('click', ()=>openPayModal(null));
+  $('pay-new').addEventListener('click', ()=>openPayModal('입금', null));
+  $('pay-new-buy').addEventListener('click', ()=>openPayModal('구매', null));
   $('pay-export').addEventListener('click', exportPayments);
   $('pay-cancel').addEventListener('click', ()=>$('pay-bg').classList.add('hidden'));
   $('pay-bg').addEventListener('click', e=>{ if(e.target===$('pay-bg')) $('pay-bg').classList.add('hidden'); });
@@ -1041,6 +1049,24 @@ const PAY_COLOR={'1차대기':'#f0a020','2차대기':'#1f4fd6','수락':'#7c3aed
 const PAY_LABEL={'1차대기':'1차 결재 대기','2차대기':'최고관리자 수락 대기','수락':'수락됨 · 입금 대기','완료':'결제 완료','반려':'반려'};
 const won = n => (Number(n)||0).toLocaleString('ko-KR')+'원';
 const fmtTs = t => t ? String(t).slice(0,16).replace('T',' ') : '';
+function payLabel(p){
+  if(p.status==='완료') return p.kind==='구매'?'구매 완료':'결제 완료';
+  if(p.status==='수락') return p.kind==='구매'?'수락됨 · 구매 대기':'수락됨 · 입금 대기';
+  return PAY_LABEL[p.status]||p.status;
+}
+function kindTag(p){
+  const buy=p.kind==='구매';
+  return `<span class="pill" style="background:${buy?'#0891b2':'#1f4fd6'};font-size:10.5px">${buy?'구매':'입금'}</span>`;
+}
+function payInfoHTML(p){
+  if(p.kind==='구매'){
+    const link = (p.product_url && /^https?:\/\//i.test(p.product_url))
+      ? `<a href="${esc(p.product_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">상품 링크 ↗</a>` : esc(p.product_url||'');
+    return `${link}${p.options?((link?'<br>':'')+esc(p.options)):''}`;
+  }
+  return `${esc(p.bank||'')} ${esc(p.account_no||'')}${p.account_holder?'<br>'+esc(p.account_holder):''}`;
+}
+function payAmount(p){ return p.amount ? won(p.amount) : (p.kind==='구매'?'<span style="color:var(--soft)">금액 미정</span>':won(0)); }
 function attHTML(p){
   const a=Array.isArray(p.attachments)?p.attachments:[];
   if(!a.length) return '';
@@ -1087,10 +1113,10 @@ async function renderPayments(){
       if(role==='team-lead') btns=`<button class="btn ok sm" data-act="승인" data-id="${p.id}">승인</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
       else if(p.status==='2차대기') btns=`<button class="btn accent sm" data-act="수락" data-id="${p.id}">요청 수락</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
       else btns=`<button class="btn ok sm" data-act="완료" data-id="${p.id}">결제 완료</button><button class="btn danger sm" data-act="반려" data-id="${p.id}">반려</button>`;
-      const badge = role==='super-admin' ? `<span class="pill" style="background:${PAY_COLOR[p.status]};font-size:11px">${PAY_LABEL[p.status]}</span> ` : '';
+      const badge = role==='super-admin' ? `<span class="pill" style="background:${PAY_COLOR[p.status]};font-size:11px">${payLabel(p)}</span> ` : '';
       return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid var(--line)">
-        <div style="flex:1;min-width:230px">${badge}<b>${esc(nameOf(p.requester))}</b> · ${esc(p.category||'')} · ${esc(p.item||'')}<br>
-          <span style="color:var(--soft);font-size:12.5px">${won(p.amount)} · ${esc(p.bank||'')} ${esc(p.account_no||'')} ${p.account_holder?'('+esc(p.account_holder)+')':''}</span>
+        <div style="flex:1;min-width:230px">${badge}${kindTag(p)} <b>${esc(nameOf(p.requester))}</b> · ${esc(p.category||'')} · ${esc(p.item||'')}<br>
+          <span style="color:var(--soft);font-size:12.5px">${payAmount(p)} · ${payInfoHTML(p)}</span>
           ${p.memo?`<br><span style="font-size:12px;color:var(--soft)">비고: ${esc(p.memo)}</span>`:''}
           ${(p.attachments&&p.attachments.length)?`<br>${attHTML(p)}`:''}
           ${p.first_approver_name?`<br><span style="font-size:12px;color:var(--soft)">1차(${esc(p.first_approver_name)}) 승인 완료</span>`:''}
@@ -1111,50 +1137,72 @@ async function renderPayments(){
       <td>${(p.requested_at||'').slice(0,10)}</td>
       <td class="pay-adm">${esc(nameOf(p.requester))}</td>
       <td>${esc(p.category||'')}</td>
-      <td>${esc(p.item||'')}${(p.attachments&&p.attachments.length)?'<br>'+attHTML(p):''}${rej}</td>
-      <td>${won(p.amount)}</td>
-      <td style="font-size:12.5px">${esc(p.bank||'')} ${esc(p.account_no||'')}${p.account_holder?'<br>'+esc(p.account_holder):''}</td>
-      <td><span class="pill" style="background:${PAY_COLOR[p.status]}">${PAY_LABEL[p.status]}</span></td>
+      <td>${kindTag(p)} ${esc(p.item||'')}${(p.attachments&&p.attachments.length)?'<br>'+attHTML(p):''}${rej}</td>
+      <td>${payAmount(p)}</td>
+      <td style="font-size:12.5px">${payInfoHTML(p)}</td>
+      <td><span class="pill" style="background:${PAY_COLOR[p.status]}">${payLabel(p)}</span></td>
       <td class="pay-adm">${payActions(p, role)}</td>
     </tr>`;
   }).join('');
   $('pay-body').querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>decidePayment(b.dataset.id,b.dataset.act));
-  $('pay-body').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.edit));
+  $('pay-body').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openPayModal(null, b.dataset.edit));
   document.querySelectorAll('.pay-adm').forEach(el=>el.style.display=seeOthers?'':'none');
   bindAttLinks();
 }
 function exportPayments(){
   if(typeof XLSX==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했습니다.'); return; }
   if(!PAYMENTS.length){ alert('내보낼 데이터가 없습니다.'); return; }
-  const head=['요청일시','요청자','카테고리','품명','금액','입금은행','예금주','계좌번호','비고','상태','1차결재자','1차승인','수락일시','결제완료일시'];
-  const rows=PAYMENTS.map(p=>[fmtTs(p.requested_at),nameOf(p.requester),p.category||'',p.item||'',Number(p.amount)||0,p.bank||'',p.account_holder||'',p.account_no||'',p.memo||'',PAY_LABEL[p.status]||p.status,p.first_approver_name||'',fmtTs(p.first_approved_at),fmtTs(p.accepted_at),fmtTs(p.final_approved_at)]);
+  const head=['요청일시','요청자','종류','카테고리','품명/상품명','금액','입금은행','예금주','계좌번호','상품링크','옵션·수량','비고','상태','1차결재자','1차승인','수락일시','완료일시'];
+  const rows=PAYMENTS.map(p=>[fmtTs(p.requested_at),nameOf(p.requester),(p.kind==='구매'?'구매':'입금'),p.category||'',p.item||'',Number(p.amount)||0,p.bank||'',p.account_holder||'',p.account_no||'',p.product_url||'',p.options||'',p.memo||'',payLabel(p),p.first_approver_name||'',fmtTs(p.first_approved_at),fmtTs(p.accepted_at),fmtTs(p.final_approved_at)]);
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:16},{wch:9},{wch:12},{wch:26},{wch:12},{wch:11},{wch:12},{wch:18},{wch:18},{wch:15},{wch:9},{wch:16},{wch:16},{wch:16}];
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '결제요청');
-  XLSX.writeFile(wb, `링커_결제요청_${dstr(new Date())}.xlsx`);
+  ws['!cols']=[{wch:16},{wch:9},{wch:6},{wch:12},{wch:26},{wch:12},{wch:11},{wch:12},{wch:18},{wch:30},{wch:18},{wch:18},{wch:16},{wch:9},{wch:16},{wch:16},{wch:16}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '결제·구매요청');
+  XLSX.writeFile(wb, `링커_결제구매요청_${dstr(new Date())}.xlsx`);
 }
-function openPayModal(id){
+function openPayModal(kind, id){
   const p = id ? PAYMENTS.find(x=>x.id===id) : null;
+  const k = p ? (p.kind||'입금') : (kind||'입금');
+  const buy = k==='구매';
   $('pay-id').value = p?p.id:'';
+  $('pay-kind').value = k;
   $('p-cat').value=p?(p.category||''):''; $('p-item').value=p?(p.item||''):'';
   $('p-amount').value=p?(p.amount||''):''; $('p-bank').value=p?(p.bank||''):'';
   $('p-holder').value=p?(p.account_holder||''):''; $('p-acc').value=p?(p.account_no||''):'';
+  $('p-url').value=p?(p.product_url||''):''; $('p-opt').value=p?(p.options||''):'';
   $('p-memo').value=p?(p.memo||''):''; $('p-files').value='';
-  $('pay-modal-title').textContent = p?'결제요청 수정 (최고관리자)':'결제(입금) 요청';
+  // 종류별 필드 토글
+  $('buy-only').style.display = buy?'':'none';
+  $('pay-only').style.display = buy?'none':'';
+  $('p-item-label').textContent = buy?'상품명':'품명';
+  $('p-item').placeholder = buy?'예: 뉴클래식레더 A5메모패드':'예: 뉴클래식레더 A5메모패드+볼펜 세트';
+  $('p-amount-label').textContent = buy?'예상 금액 (원, 선택)':'금액 (원, 부가세 포함)';
+  const base = buy?'구매 요청':'결제(입금) 요청';
+  $('pay-file-label').textContent = buy?'상품 이미지 (선택 · 여러 장 가능)':'첨부파일 (선택 · 이미지·PDF, 여러 개 가능)';
+  $('pay-modal-title').textContent = p?((buy?'구매':'결제')+'요청 수정 (최고관리자)'):base;
   $('pay-file-field').style.display = p?'none':'';   // 수정 시 첨부 변경은 생략
   $('pay-submit').textContent = p?'저장':'요청';
   $('pay-bg').classList.remove('hidden');
 }
 async function submitPayment(){
   const id=$('pay-id').value;
-  const category=$('p-cat').value.trim(), item=$('p-item').value.trim(), amount=Number($('p-amount').value)||0;
+  const kind=$('pay-kind').value||'입금', buy=kind==='구매';
+  const category=$('p-cat').value.trim(), item=$('p-item').value.trim();
+  const amount=Number($('p-amount').value)||0;
   const bank=$('p-bank').value.trim(), account_no=$('p-acc').value.trim();
-  if(!item||!amount||!bank||!account_no){ alert('품명·금액·입금은행·계좌번호는 필수입니다.'); return; }
+  const product_url=$('p-url').value.trim()||null, options=$('p-opt').value.trim()||null;
+  if(buy){
+    if(!item){ alert('상품명은 필수입니다.'); return; }
+  } else {
+    if(!item||!amount||!bank||!account_no){ alert('품명·금액·입금은행·계좌번호는 필수입니다.'); return; }
+  }
   const holder=$('p-holder').value.trim()||null, memo=$('p-memo').value.trim()||null;
+  // 구매요청은 계좌정보 없음
+  const payBank=buy?null:bank, payHolder=buy?null:holder, payAcc=buy?null:account_no;
+  const payAmount=buy?(amount||null):amount, payUrl=buy?product_url:null, payOpt=buy?options:null;
   if(id){
     // 최고관리자 수정 — 내용만 변경
     $('pay-submit').disabled=true; $('pay-submit').textContent='저장 중…';
-    const { error } = await db.from('payments').update({ category, item, amount, bank, account_holder:holder, account_no, memo }).eq('id', id);
+    const { error } = await db.from('payments').update({ category, item, amount:payAmount, bank:payBank, account_holder:payHolder, account_no:payAcc, product_url:payUrl, options:payOpt, memo }).eq('id', id);
     $('pay-submit').disabled=false; $('pay-submit').textContent='저장';
     if(error){ alert('수정 오류: '+error.message); return; }
     $('pay-bg').classList.add('hidden'); await renderPayments(); return;
@@ -1175,8 +1223,9 @@ async function submitPayment(){
   else if(ME.role==='team-lead'){ status='2차대기'; }
   else status='1차대기';
   const { error } = await db.from('payments').insert({
-    requester:ME.id, requester_name:ME.name, category, item, amount,
-    bank, account_holder:holder, account_no, memo, status, attachments, ...extra
+    requester:ME.id, requester_name:ME.name, kind, category, item, amount:payAmount,
+    bank:payBank, account_holder:payHolder, account_no:payAcc,
+    product_url:payUrl, options:payOpt, memo, status, attachments, ...extra
   });
   $('pay-submit').disabled=false; $('pay-submit').textContent='요청';
   if(error){ alert('요청 오류: '+error.message); return; }
