@@ -7,6 +7,7 @@
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
   --paper:#f5f3ec; --card:#fff; --ink:#1b1d22; --soft:#6c7079; --line:#e3e0d6;
@@ -301,7 +302,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
     <section id="tab-pay" class="hidden">
       <div class="page-head">
         <div><h2>결제·청구</h2><p>결제(입금) · 구매 · 실비 요청을 올리면 1차 결재 → 최고관리자 최종 결재를 거칩니다.</p></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary sm" id="pay-export">엑셀 내보내기</button><button class="btn secondary sm" id="pay-new-buy">+ 구매 요청</button><button class="btn secondary sm" id="pay-new-exp" style="border-color:var(--exp);color:var(--exp)">+ 실비 청구</button><button class="btn accent sm" id="pay-new">+ 결제 요청</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary sm" id="pay-export">엑셀 내보내기</button><button class="btn secondary sm pay-adm" id="pay-zip" title="현재 목록(기간·종류 필터 적용)의 영수증 전부 + 목록 엑셀을 ZIP으로">영수증 ZIP</button><button class="btn secondary sm" id="pay-new-buy">+ 구매 요청</button><button class="btn secondary sm" id="pay-new-exp" style="border-color:var(--exp);color:var(--exp)">+ 실비 청구</button><button class="btn accent sm" id="pay-new">+ 결제 요청</button></div>
       </div>
       <div id="pay-approve-wrap" class="card hidden">
         <h3 id="pay-approve-title" style="font-size:16px;margin-bottom:8px;">결재 대기함</h3>
@@ -679,6 +680,7 @@ function bindEvents(){
   $('pay-new').addEventListener('click', ()=>openPayModal('입금', null));
   $('pay-new-buy').addEventListener('click', ()=>openPayModal('구매', null));
   $('pay-new-exp').addEventListener('click', ()=>openPayModal('실비', null));
+  $('pay-zip').addEventListener('click', exportReceiptsZip);
   $('exp-add').addEventListener('click', ()=>{ const tr=expAddRow(); tr.querySelector('.ei-desc').focus(); });
   bindPayFilter();
   $('pay-export').addEventListener('click', exportPayments);
@@ -1406,17 +1408,26 @@ function bindPayFilter(){
   ['pay-f-status','pay-f-who','pay-f-month'].forEach(id=>$(id).addEventListener('change', renderPayTable));
   $('pay-segs').querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{ PAY_KIND=b.dataset.kind; renderPayTable(); }));
 }
-function exportPayments(){
-  if(typeof XLSX==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했습니다.'); return; }
-  const list=payFiltered(), filtered=payActiveFilter();
-  if(!list.length){ alert(filtered?'검색 조건에 맞는 데이터가 없습니다.':'내보낼 데이터가 없습니다.'); return; }
-  if(filtered && !confirm(`현재 검색·필터가 적용된 ${list.length}건만 내보냅니다. 계속할까요?\n(전체를 내보내려면 '취소' 후 필터를 초기화하세요)`)) return;
+/* 파일명 안전 처리 (ZIP 안 파일명용) */
+function safeName(s, max){ return String(s||'').replace(/[\\/:*?"<>|\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0, max||40); }
+function attFileName(p, f, i){   // 26-11-09_음정윤_택시 회사→스튜디오 외 2건_1.jpg
+  const ext=(((f.name||f.path||'').split('.').pop()||'').match(/^[a-zA-Z0-9]{1,5}$/)||[''])[0].toLowerCase()
+         || (((f.path||'').split('.').pop()||'bin').toLowerCase());
+  return `${sd(p.requested_at)}_${safeName(nameOf(p.requester),10)}_${safeName(p.item,30)}_${i+1}.${ext}`;
+}
+/* 현재 목록(검색·필터 적용)으로 엑셀 워크북 생성 — 엑셀 내보내기·ZIP 공용 */
+function buildPayWorkbook(list, withFiles){
   const head=['요청일시','요청자','종류','카테고리','품명/상품명','금액','은행','예금주','계좌번호','상품링크','옵션·수량','사용목적','결제수단','내역상세','비고','상태','1차결재자','1차승인','수락일시','완료일시'];
-  const rows=list.map(p=>[fmtTs(p.requested_at),nameOf(p.requester),KIND_META[kindOf(p)].label,p.category||'',p.item||'',Number(p.amount)||0,p.bank||'',p.account_holder||'',p.account_no||'',p.product_url||'',p.options||'',p.purpose||'',p.pay_method||'',
-    expItems(p).map(it=>`${it.date||''} ${it.desc||''} ${Number(it.amount)||0}`).join(' / '),
-    p.memo||'',payLabel(p),p.first_approver_name||'',fmtTs(p.first_approved_at),fmtTs(p.accepted_at),fmtTs(p.final_approved_at)]);
+  if(withFiles) head.push('영수증 파일');
+  const rows=list.map(p=>{
+    const r=[fmtTs(p.requested_at),nameOf(p.requester),KIND_META[kindOf(p)].label,p.category||'',p.item||'',Number(p.amount)||0,p.bank||'',p.account_holder||'',p.account_no||'',p.product_url||'',p.options||'',p.purpose||'',p.pay_method||'',
+      expItems(p).map(it=>`${it.date||''} ${it.desc||''} ${Number(it.amount)||0}`).join(' / '),
+      p.memo||'',payLabel(p),p.first_approver_name||'',fmtTs(p.first_approved_at),fmtTs(p.accepted_at),fmtTs(p.final_approved_at)];
+    if(withFiles) r.push((p.attachments||[]).map((f,i)=>attFileName(p,f,i)).join(', '));
+    return r;
+  });
   const ws=XLSX.utils.aoa_to_sheet([head,...rows]);
-  ws['!cols']=[{wch:16},{wch:9},{wch:6},{wch:12},{wch:26},{wch:12},{wch:9},{wch:12},{wch:18},{wch:26},{wch:16},{wch:18},{wch:10},{wch:40},{wch:18},{wch:16},{wch:9},{wch:16},{wch:16},{wch:16}];
+  ws['!cols']=[{wch:16},{wch:9},{wch:6},{wch:12},{wch:26},{wch:12},{wch:9},{wch:12},{wch:18},{wch:26},{wch:16},{wch:18},{wch:10},{wch:40},{wch:18},{wch:16},{wch:9},{wch:16},{wch:16},{wch:16},{wch:40}];
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '요청 단위');
   // 실비 영수증 단위 시트 (한 줄 = 영수증 한 장)
   const exp=list.filter(p=>p.kind==='실비'&&expItems(p).length);
@@ -1427,7 +1438,57 @@ function exportPayments(){
     ws2['!cols']=[{wch:11},{wch:9},{wch:11},{wch:30},{wch:11},{wch:12},{wch:18},{wch:10},{wch:14},{wch:16}];
     XLSX.utils.book_append_sheet(wb, ws2, '실비 영수증 단위');
   }
-  XLSX.writeFile(wb, `링커_결제청구${filtered?'_검색결과':''}_${dstr(new Date())}.xlsx`);
+  return wb;
+}
+function payExportTag(){   // 파일명에 붙일 범위 표시
+  const mon=$('pay-f-month').value; const kind=PAY_KIND?('_'+KIND_META[PAY_KIND].label):'';
+  return (mon?('_'+mon):'')+kind+(payTokens().length||$('pay-f-status').value||$('pay-f-who').value?'_검색결과':'');
+}
+function exportPayments(){
+  if(typeof XLSX==='undefined'){ alert('엑셀 라이브러리를 불러오지 못했습니다.'); return; }
+  const list=payFiltered(), filtered=payActiveFilter();
+  if(!list.length){ alert(filtered?'검색 조건에 맞는 데이터가 없습니다.':'내보낼 데이터가 없습니다.'); return; }
+  if(filtered && !confirm(`현재 검색·필터가 적용된 ${list.length}건만 내보냅니다. 계속할까요?\n(전체를 내보내려면 '취소' 후 필터를 초기화하세요)`)) return;
+  const wb=buildPayWorkbook(list,false);
+  XLSX.writeFile(wb, `링커_결제청구${payExportTag()}_${dstr(new Date())}.xlsx`);
+}
+/* ---- 영수증 ZIP 내려받기 (세무사 전달용) — 현재 목록의 첨부 전부 + 목록 엑셀 ---- */
+async function exportReceiptsZip(){
+  if(typeof JSZip==='undefined'){ alert('압축 라이브러리를 불러오지 못했습니다. 새로고침 후 다시 시도하세요.'); return; }
+  const list=payFiltered(), filtered=payActiveFilter();
+  const withAtt=list.filter(p=>Array.isArray(p.attachments)&&p.attachments.length);
+  const total=withAtt.reduce((s,p)=>s+p.attachments.length,0);
+  if(!total){ alert(filtered?'검색 조건에 맞는 건에 첨부된 영수증이 없습니다.':'첨부된 영수증이 없습니다.'); return; }
+  const mon=$('pay-f-month').value;
+  if(!confirm(`${filtered?'현재 필터 범위':'전체'} ${list.length}건 중 영수증 ${total}장을 ZIP으로 내려받습니다.${mon?`\n기간: ${mon.slice(0,4)}년 ${Number(mon.slice(5,7))}월`:'\n(기간 필터를 걸면 그 달 것만 받을 수 있습니다)'}\n목록 엑셀도 함께 들어갑니다. 계속할까요?`)) return;
+  const btn=$('pay-zip'); btn.disabled=true;
+  try{
+    const zip=new JSZip();
+    const folderOf=p=>({'입금':'1_결제(입금)','구매':'2_구매','실비':'3_실비'})[kindOf(p)];
+    let done=0, failed=[];
+    for(const p of withAtt){
+      for(let i=0;i<p.attachments.length;i++){
+        const f=p.attachments[i]; done++;
+        btn.textContent=`영수증 ${done}/${total} 받는 중…`;
+        const { data, error } = await db.storage.from('payment-files').download(f.path);
+        if(error||!data){ failed.push(attFileName(p,f,i)); continue; }
+        zip.folder(folderOf(p)).file(attFileName(p,f,i), data);
+      }
+    }
+    btn.textContent='목록 엑셀 만드는 중…';
+    if(typeof XLSX!=='undefined'){
+      const wb=buildPayWorkbook(list,true);
+      zip.file('목록.xlsx', XLSX.write(wb,{type:'array',bookType:'xlsx'}));
+    }
+    if(failed.length) zip.file('받지 못한 파일.txt', failed.join('\n'));
+    btn.textContent='압축 중…';
+    const blob=await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`링커_영수증${payExportTag()}_${dstr(new Date())}.zip`; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    if(failed.length) alert(`${failed.length}장은 받지 못했습니다. ZIP 안의 '받지 못한 파일.txt'를 확인하세요.`);
+  }catch(e){ alert('ZIP 생성 오류: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='영수증 ZIP'; }
 }
 /* ---- 실비 사용 내역 줄 편집 ---- */
 function expRows(){ return [...$('exp-rows').querySelectorAll('tr')]; }
